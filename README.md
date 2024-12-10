@@ -4,8 +4,8 @@
 This project explores the impact of gender equality laws on economic growth using Bayesian models, focusing on mechanisms like female labor participation and education. It includes a comparison of outcomes across regions and economic levels.
 
 ## Research Questions
-1. Does legal gender equality promote economic growth (e.g., GDP growth rate)?
-2. Possible mechanisms linking gender-equal laws to GDP:
+-  Does legal gender equality promote economic growth (e.g., GDP growth rate)?
+-   Possible mechanisms linking gender-equal laws to GDP:
   - Female labor force participation: How do laws encourage women to join the workforce? 
   - Social welfare effects: How does gender equality improve education and health, driving long-term growth?
   - Are the effects of gender-equal laws on GDP different across economies with varying legal and economic contexts?
