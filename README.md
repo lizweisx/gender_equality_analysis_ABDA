@@ -1,23 +1,9 @@
-# Applied Bayesian Data Analysis: Gender Equality and Economic Growth
+# Analyzing the Economic Impact of Gender Equality Across 190 Countries
 
 ## Project Overview
-This project explores the impact of gender equality laws on economic growth using Bayesian models, focusing on mechanisms like female labor participation and education. It includes a comparison of outcomes across regions and economic levels.
-
-### Objectives: 
-
-1. Quantify the impact of gender equality laws on GDP growth. 
-1. Identify pathways linking gender-equal laws to economic outcomes (e.g., labor force participation, education). 
-1. Analyze heterogeneity in these effects across regions and income levels.
-
----
-
-## Research Questions
-1. **Does legal gender equality promote economic growth (e.g., GDP growth rate)?**
-2. **What are the key mechanisms through which gender-equal laws affect GDP?**
-   - Female labor force participation: Do laws encourage more women to enter the workforce?
-   - Social welfare improvements: How does gender equality enhance education and health outcomes?
-3. **Do the effects of gender equality laws vary by region or economic context?**
-   - How do developed and developing countries differ in their responses to gender-equal laws?
+The project examines the relationship between gender equality and economic growth by analyzing data from nearly 190 countries. Using the Women, Business, and the Law (WBL) index, along with labor force participation and education levels as key variables, we aim to understand how these factors influence GDP.
+Through exploratory data analysis, we investigate the extent to which improvements in gender equality correlate with economic performance. Our approach focuses on uncovering trends and relationships within the data without making predictive inferences. By employing Bayesian models, we analyze variations across countries and regions, allowing for a deeper understanding of the dynamics between equality, workforce participation, and education in shaping economic outcomes.
+The insights gained from this study can contribute to a broader understanding of the critical role gender equality plays in fostering sustainable economic development. 
 
 ---
 
