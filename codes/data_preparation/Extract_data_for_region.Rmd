@@ -1,0 +1,117 @@
+---
+title: "Extract data for a specific region or income group"
+author: "Sixuan Wei"
+date: "2024-12-30"
+output: html_document
+---
+
+# Filter the data with region == High income: OECD
+
+- This code helps extract data for a specific region or income group from the original dataset and organizes it into a long format. Note that no data cleaning is performed here. It is suitable for cases where you wish to extract a subset of data for analysis. 
+- In the example below, we extract data for `region == High income: OECD` from year 1991 to 2022. The file_path is set to "../../data/Data_1991_2023.xlsx". Please adjust the keywords and file path as needed for your use case. 
+- Required R packages: library(readxl), library(dplyr), and library(tidyr)."
+
+## set up
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+```
+
+## 1. Read data
+
+```{r read_data}
+
+# Set the path of data
+file_path <- "../../data/Data_1991_2023.xlsx"
+
+# Read each sheets
+wbl_data <- read_excel(file_path, sheet = "WBL Panel Data")
+gdp_data <- read_excel(file_path, sheet = "GDP")
+labor_data <- read_excel(file_path, sheet = "Labour Force")
+education_data <- read_excel(file_path, sheet = "Education")
+wage_data <- read_excel(file_path, sheet = "Wages")
+
+```
+
+## 2. A function to read and process data 
+
+Input: Data from A single workbook of the excel file
+
+This function can accomplish the following tasks:
+- Filter data for high-income countries.
+- Reserve country codes for column names.
+- Transpose the data.
+- Convert to long format and add year information.
+
+Output: Long format data for one variable
+
+```{r func:process_data}
+
+# Function definition: read and process data
+process_data <- function(data, country_codes, value_name, code_column = "Country Code") {
+  
+  # Filter data for high-income countries
+  filtered_data <- data %>%
+    filter(.data[[code_column]] %in% country_codes)
+  
+  # Transpose the data and reserve country codes for column names
+  transposed_data <- filtered_data %>%
+    select(matches("^199[1-9]$|^20[0-1][0-9]$|^202[0-2]$")) %>%
+    t() %>%
+    as.data.frame()
+  
+  # Add country code as column name
+  colnames(transposed_data) <- filtered_data[[code_column]]
+  
+  # Create year column
+  years <- as.numeric(rownames(transposed_data))
+  
+  # Convert to long format and add year information
+  long_data <- transposed_data %>%
+    mutate(Year = years) %>%
+    pivot_longer(
+      cols = -Year,
+      names_to = "Country.Code",
+      values_to = value_name
+    )
+  
+  return(long_data)
+}
+```
+
+```{r apply_function_to_all_data_sets}
+# Get codes for high-income countries
+
+
+highinc_codes <- wbl_data %>% 
+  filter(`Region` == "High income: OECD") %>% 
+  pull(`Economy Code`)
+
+
+# Process data for each variable
+wbl_long <- process_data(wbl_data, highinc_codes, "WBL.Index", code_column = "Economy Code")
+gdp_long <- process_data(gdp_data, highinc_codes, "GDP")
+labor_long <- process_data(labor_data, highinc_codes, "Labor.Force.Participation")
+education_long <- process_data(education_data, highinc_codes, "Education.Levels")
+wage_long <- process_data(wage_data, highinc_codes, "Wage")
+```
+## 3. Combined into a final long format data
+```{r merge_all_long_format_data_sets}
+
+# Merge into a single data frame
+final_data <- wbl_long %>%
+  left_join(gdp_long, by = c("Country.Code", "Year")) %>%
+  left_join(labor_long, by = c("Country.Code", "Year")) %>%
+  left_join(education_long, by = c("Country.Code", "Year")) %>%
+  left_join(wage_long, by = c("Country.Code", "Year"))
+```
+
+## 4. Check data integrity
+```{r check_data_integrity}
+summary(final_data)
+```
+## 5. Save the data into csv file
+```{r}
+write.csv(final_data, "OECD_data_not_cleaned.csv", row.names = FALSE)
+```
