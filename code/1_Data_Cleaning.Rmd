@@ -1,0 +1,298 @@
+---
+title: "Data Cleaning"
+author: "Sixuan Wei"
+date: "2024-12-30"
+output: html_document
+---
+
+## set up
+```{r set_up}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+```
+
+# I. Convert the dataset to panel data
+## 1. Read data
+
+```{r read_data}
+
+# Set the path of data
+file_path <- "../data/Data_1991_2023.xlsx"
+
+# Read each sheets
+wbl_data <- read_excel(file_path, sheet = "WBL Panel Data")
+gdp_data <- read_excel(file_path, sheet = "GDP")
+labor_data <- read_excel(file_path, sheet = "Labour Force")
+education_pri_data <- read_excel(file_path, sheet = "Primary_Education")
+education_sec_data <- read_excel(file_path, sheet = "Secondary_Education")
+education_ter_data <- read_excel(file_path, sheet = "Tertiary_Education")
+wage_data <- read_excel(file_path, sheet = "Wages")
+
+```
+
+## 2. A function to read and process data 
+
+Input: Data from A single workbook of the excel file
+
+This function can:
+- Reserve country codes for column names.
+- Transpose the data.
+- Convert to long format and add year information.
+
+Output: Long format data for one variable
+
+```{r func:process_data}
+
+process_data <- function(data, value_name, code_column = "Country Code") {
+
+  # Select year from 1999 to 2022 (Year 2023 has too many missing values)
+  selected_data <- data %>%
+    select(matches("^199[1-9]$|^20[0-1][0-9]$|^202[0-2]$"))
+  
+  # Transpose the data and reserve country codes for column names
+  transposed_data <- selected_data %>%
+    t() %>%
+    as.data.frame()
+  
+  # Add country code as column names
+  colnames(transposed_data) <- data[[code_column]]
+  
+  # Create year column
+  years <- as.numeric(rownames(transposed_data))
+  
+  # Convert to long format and add year information
+  long_data <- transposed_data %>%
+    mutate(Year = years) %>%
+    pivot_longer(
+      cols = -Year,
+      names_to = "Country.Code",
+      values_to = value_name
+    )
+  
+  return(long_data)
+}
+```
+
+## 3. Apply "process_data" to all variables
+```{r apply_function_to_all_data_sets}
+
+# Process data for each variable
+wbl_long <- process_data(wbl_data, "WBL.Index")
+gdp_long <- process_data(gdp_data,  "GDP")
+labor_long <- process_data(labor_data, "Labor.Force.Participation")
+edu_pri_long <- process_data(education_pri_data, "Edu.pri")
+edu_sec_long <- process_data(education_sec_data, "Edu.sec")
+edu_ter_long <- process_data(education_ter_data, "Edu.ter")
+wage_long <- process_data(wage_data,  "Wage")
+```
+
+# 4. Substract Grouping Factors
+"Country Code" is the unique code for each country
+```{r}
+metadata <- wbl_data %>%
+  select(`Country Code`, `Region`, `Income Group`) %>%
+  distinct() 
+```
+
+## 5. Combined into a final long format data
+```{r merge_all_long_format_data_sets}
+
+# Merge into a single data frame
+final_data <- wbl_long %>%
+  left_join(metadata, by = c("Country.Code" = "Country Code"))%>%
+  left_join(gdp_long, by = c("Country.Code", "Year")) %>%
+  left_join(labor_long, by = c("Country.Code", "Year")) %>%
+  left_join(edu_pri_long, by = c("Country.Code", "Year")) %>%
+  left_join(edu_sec_long, by = c("Country.Code", "Year")) %>%
+  left_join(edu_ter_long, by = c("Country.Code", "Year")) %>%
+  left_join(wage_long, by = c("Country.Code", "Year"))
+
+summary(final_data)
+```
+# II. Clean Data
+
+## 1. Delete the countries which has more than 50% missing value in GDP, Labor Force Participation, or Waged female data
+```{r}
+
+library(dplyr)
+
+# Missing values by country
+missing_summary <- final_data %>%
+  group_by(Country.Code) %>%
+  summarise(
+    GDP_Missing = sum(is.na(GDP)),
+    Labor_Missing = sum(is.na(Labor.Force.Participation)),
+    Wage_Missing = sum(is.na(Wage)),
+    Total_Count = n(),
+    Region = first(Region)
+  ) %>%
+  mutate(
+    GDP_Missing_Rate = round(GDP_Missing / Total_Count, 2),
+    Labor_Missing_Rate = round(Labor_Missing / Total_Count, 2),
+    Wage_Missing_Rate = round(Wage_Missing / Total_Count, 2)
+  )
+
+# Filter the countries to be removed based on the criteria and mark all reasons for exceeding the threshold
+countries_to_remove <- missing_summary %>%
+  filter(
+    GDP_Missing_Rate > 0.5 |
+      Labor_Missing_Rate > 0.5 |
+      Wage_Missing_Rate > 0.5
+  ) %>%
+  rowwise() %>%
+  mutate(
+    Reason = paste(
+      if (GDP_Missing_Rate > 0.5) paste0("GDP ", GDP_Missing_Rate * 100, "% missing;") else NULL,
+      if (Labor_Missing_Rate > 0.5) paste0("Labor Force Participation ", Labor_Missing_Rate * 100, "% missing;") else NULL,
+      if (Wage_Missing_Rate > 0.5) paste0("Wage ", Wage_Missing_Rate * 100, "% missing.") else NULL,
+      sep = " "
+    )
+  ) %>%
+  ungroup()
+
+# Output the deleted countries and the number of missing values for each variable, region, and reasons for deletion
+if (nrow(countries_to_remove) > 0) {
+  print("Countries removed due to missing data:")
+  removed_countries_info <- countries_to_remove %>%
+    select(
+      Country.Code,
+      Region,
+      GDP_Missing_Rate,
+      Labor_Missing_Rate,
+      Wage_Missing_Rate,
+      Reason
+    ) %>%
+    arrange(Region)  # Sort by Region
+  print(removed_countries_info)
+} else {
+  print("No countries removed. All countries meet the criteria.")
+}
+
+# Remove countries
+cleaned_data <- final_data %>%
+  filter(!(Country.Code %in% countries_to_remove$Country.Code)) %>%
+  filter(
+    !is.na(GDP) &
+      !is.na(Labor.Force.Participation) &
+      !is.na(Wage)
+  )
+
+summary(cleaned_data)
+```
+
+
+## 2. Similarly, delete the countries which has more than 70% missing value in Education
+```{r check_data_integrity}
+library(dplyr)
+
+
+edu_threshold <- 0.7  
+
+cleaned_data <- cleaned_data %>%
+  group_by(Country.Code, Region) %>%
+  mutate(
+    Edu.pri_Missing_Rate = round(sum(is.na(Edu.pri)) / n(), 2),
+    Edu.sec_Missing_Rate = round(sum(is.na(Edu.sec)) / n(), 2),
+    Edu.ter_Missing_Rate = round(sum(is.na(Edu.ter)) / n(), 2),
+    Edu_Missing_Rate = round((sum(is.na(Edu.pri)) + sum(is.na(Edu.sec)) + sum(is.na(Edu.ter))) / (n() * 3), 2),  
+  ) %>%
+  ungroup()
+
+# Filter countries to be deleted (more than 70% missing or 100% missing for a certain education level)
+countries_to_remove <- cleaned_data %>%
+  group_by(Country.Code, Region) %>%
+  summarise(
+    Edu_Missing_Rate = first(Edu_Missing_Rate),
+    Edu.pri_Missing_Rate = first(Edu.pri_Missing_Rate),
+    Edu.sec_Missing_Rate = first(Edu.sec_Missing_Rate),
+    Edu.ter_Missing_Rate = first(Edu.ter_Missing_Rate)
+  ) %>%
+  filter(
+    Edu_Missing_Rate > edu_threshold |
+      Edu.pri_Missing_Rate == 1 |
+      Edu.sec_Missing_Rate == 1 |
+      Edu.ter_Missing_Rate == 1
+  )
+
+# Output the deleted countries and their missing rates and regions for each variable
+if (nrow(countries_to_remove) > 0) {
+  print("Countries removed due to high education data missing rates or 100% missing in any education category:")
+  removed_countries_info <- countries_to_remove %>%
+    arrange(Region)  # Sort by Region
+  print(removed_countries_info)
+}
+
+# Remove countries
+cleaned_data_after_removal <- cleaned_data %>%
+  filter(!(Country.Code %in% countries_to_remove$Country.Code))
+
+
+summary(cleaned_data_after_removal)
+
+```
+
+# 3. applied interpolation methods to handle the remaining missing values in edu data
+```{r}
+library(dplyr)
+library(zoo)
+
+processed_data <- cleaned_data_after_removal %>%
+  group_by(Country.Code) %>%
+  mutate(
+    
+    # Fill the head and tail with the most recent observation
+    Edu.pri = na.locf(Edu.pri, na.rm = FALSE, fromLast = TRUE),  # NOCB fills the tail
+    Edu.pri = na.locf(Edu.pri, na.rm = FALSE),                  # LOCF fills the head
+    Edu.sec = na.locf(Edu.sec, na.rm = FALSE, fromLast = TRUE),
+    Edu.sec = na.locf(Edu.sec, na.rm = FALSE),
+    Edu.ter = na.locf(Edu.ter, na.rm = FALSE, fromLast = TRUE),
+    Edu.ter = na.locf(Edu.ter, na.rm = FALSE),
+    
+    # Spline interpolation 
+    Edu.pri = na.spline(Edu.pri, na.rm = FALSE),
+    Edu.sec = na.spline(Edu.sec, na.rm = FALSE),
+    Edu.ter = na.spline(Edu.ter, na.rm = FALSE),
+
+    # Limit range
+    Edu.pri = pmin(pmax(Edu.pri, 0), 100),
+    Edu.sec = pmin(pmax(Edu.sec, 0), 100),
+    Edu.ter = pmin(pmax(Edu.ter, 0), 100)
+  ) %>%
+  ungroup()
+
+
+summary(processed_data)
+```
+
+# III. Handling scale differences and right skew in GDP data
+
+## 1. Have a look at the original distribution of GDP
+```{r original_GDP_data_distribution}
+ggplot(processed_data, aes(x = GDP)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.7) +
+  labs(title = "Distribution of GDP", x = "GDP per capita, PPP (constant 2021 international $)", y = "Frequency")
+
+```
+
+## 2. Apply log transformation
+```{r log_transform_GDP}
+# Log-transform GDP
+processed_data <- processed_data %>%
+  mutate(Log.GDP = log(GDP + 1))  # Avoid log(0)
+
+ggplot(processed_data, aes(x = Log.GDP)) +
+  geom_histogram(bins = 30, fill = "skyblue", alpha = 0.7) +
+  labs(title = "Distribution of Log-Transformed GDP", x = "Log(GDP + 1)", y = "Frequency")
+```
+
+```{r check_data_integrity}
+summary(processed_data)
+```
+
+# IV. Save the data into csv file
+```{r}
+write.csv(processed_data, "../data/total_data_cleaned.csv", row.names = FALSE)
+```

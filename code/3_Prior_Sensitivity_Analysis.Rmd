@@ -1,0 +1,144 @@
+---
+title: "4_Prior_Sensitivity_Analysis"
+author: "Sixuan Wei"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+library(brms)  
+library(bayesplot)
+library(loo)
+```
+# 0. Before Modeling
+## 1. Read & Standardize data
+```{r read_data}
+# Set the path of data
+file_path <- "../data/total_data_cleaned.csv"
+
+pro_data <- read.csv(file_path)
+
+stand_data <- pro_data
+
+# List of variables to standardize
+vars_to_standardize <- c("Edu.sec", "Labor.Force.Participation", "Wage", "WBL.Index","Year")
+
+# Standardizing variables and overwriting the original data
+for (var in vars_to_standardize) {
+  stand_data[[var]] <- scale(pro_data[[var]])[, 1]  # Extract the scaled values as a numeric vector
+}
+
+# Check the standardized data
+head(stand_data[, vars_to_standardize])
+```
+
+## 2. Combine Region & Income Group for 3.4 Combined Grouping Model
+```{r merging Region and Income.Group}
+stand_data <- stand_data %>%
+  mutate(Region_IncomeGroup = paste(Region, Income.Group, sep = "_"))
+
+# Count the number of countries and observations in each Region_IncomeGroup
+region_income_summary <- stand_data %>%
+  group_by(Region_IncomeGroup) %>%
+  summarise(
+    Country_Count = n_distinct(Country.Code), # 统计国家数量
+    Observation_Count = n()                  # 统计观测数量
+  )
+
+print(region_income_summary)
+```
+## Check the default prior
+```{r}
+load("../models/model_random_effect_combined_3.4.RData")
+prior_summary(model_random_slope_ReIn_fit)
+```
+
+## set two alternative prior strengths
+```{r}
+model_random_slope_ReIn <- bf(
+  Log.GDP ~ Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage + (0 + Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage || Region_IncomeGroup) + (1 | Country.Code)
+)
+
+priors_weak <- c(
+    prior(normal(0, 10), class = "b"),
+    prior(normal(9.4, 2), class = "Intercept"),
+    prior(cauchy(0, 2.5), class = "sigma"),
+    prior(normal(0, 1), class = "sd", group = "Country.Code"),
+    prior(student_t(3, 0, 1), class = "sd")
+)
+
+priors_strong <- c(
+    prior(normal(0, 0.5), class = "b"),
+    prior(normal(9.4, 0.2), class = "Intercept"),
+    prior(normal(0, 1), class = "sigma"),
+    prior(normal(0, 0.3), class = "sd", group = "Country.Code"),
+    prior(student_t(3, 0, 0.3), class = "sd")
+)
+
+model_weak <- brm(
+  formula = model_random_slope_ReIn,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors_weak,
+  chains = 4, iter = 2000, cores = 4, seed = 123
+)
+
+model_strong <- brm(
+  formula = model_random_slope_ReIn,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors_strong,
+  chains = 4, iter = 2000, cores = 4, seed = 123
+)
+
+save(model_weak, file="../models/model_strong_prior_5.RData")
+save(model_strong, file="../models/model_weak_prior_5.RData")
+```
+
+```{r}
+load("../models/model_strong_prior_5.RData")
+load("../models/model_weak_prior_5.RData")
+
+loo_weak<-loo(model_weak)
+loo_base<-loo(model_random_slope_ReIn_fit)
+loo_strong <-loo(model_strong)
+loo_compare(loo_weak,loo_base,loo_strong)
+``` 
+```{r}
+priors_random_slope <- c(
+    prior(normal(0, 1), class = "b"),                        # 固定效应的先验（标准化系数）
+    prior(normal(9.4, 0.5), class = "Intercept"),           # 截距的先验
+    prior(normal(0, 2.5), class = "sigma"),                 # 残差标准差的先验
+    prior(normal(0, 0.5), class = "sd", group = "Country.Code"), # 国家随机截距的先验
+    prior(student_t(3, 0, 0.5), class = "sd")
+  )
+ 
+model_random_slope_ReIn_prior <- brm(
+  formula = model_random_slope_ReIn,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors_random_slope,
+  chains = 4,
+  iter = 2000,
+  cores = 4,
+  seed = 123,
+  sample_prior = "only"  # Only sample priors
+)
+
+save(model_random_slope_ReIn_prior,file="../models/model_prior_only_5.RData")
+```
+
+```{r}
+load("../models/model_prior_only_5.RData")
+posterior_samples_model <- as_draws_matrix(model_random_slope_ReIn_fit)
+posterior_samples_prior <- as_draws_matrix(model_random_slope_ReIn_prior)
+
+mcmc_dens_overlay(
+  list(
+    posterior_samples_prior[, "b_WBL.Index"],  
+    posterior_samples_model[, "b_WBL.Index"]
+   
+  )
+)
+```

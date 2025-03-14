@@ -1,0 +1,444 @@
+---
+title: "2_Modeling"
+author: "Sixuan Wei"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+library(brms)  
+library(bayesplot)
+library(loo)
+library(ggplot2)
+```
+
+
+# 0. Before Modeling
+## 1. Read & Standardize data
+```{r read_data}
+# Set the path of data
+file_path <- "../data/total_data_cleaned.csv"
+
+pro_data <- read.csv(file_path)
+
+stand_data <- pro_data
+
+# List of variables to standardize
+vars_to_standardize <- c("Edu.sec", "Labor.Force.Participation", "Wage", "WBL.Index","Year")
+
+# Standardizing variables and overwriting the original data
+for (var in vars_to_standardize) {
+  stand_data[[var]] <- scale(pro_data[[var]])[, 1]  # Extract the scaled values as a numeric vector
+}
+
+# Check the standardized data
+head(stand_data[, vars_to_standardize])
+```
+
+## 2. Combine Region & Income Group for 3.4 Combined Grouping Model
+```{r merging Region and Income.Group}
+stand_data <- stand_data %>%
+  mutate(Region_IncomeGroup = paste(Region, Income.Group, sep = "_"))
+
+# Count the number of countries and observations in each Region_IncomeGroup
+region_income_summary <- stand_data %>%
+  group_by(Region_IncomeGroup) %>%
+  summarise(
+    Country_Count = n_distinct(Country.Code), # 统计国家数量
+    Observation_Count = n()                  # 统计观测数量
+  )
+
+print(region_income_summary)
+```
+# 3.1 Simple Linear Regression Model
+```{r}
+model_simplest <- bf(
+  Log.GDP ~ 1 + Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage
+)
+
+priors <- c(
+  prior(normal(0, 1), class = "b"),                # 固定效应的先验（标准化系数）
+  prior(normal(9.4, 0.5), class = "Intercept"),   # 截距的先验
+  prior(normal(0, 2.5), class = "sigma")          # 残差标准差的先验
+)
+
+model_simplest_fit <- brm(
+  formula = model_simplest,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors,
+  chains = 4,
+  iter = 2000,
+  cores = 4,
+  seed = 123
+)
+
+save(model_simplest_fit, file="../models/model_simplest_3.1.RData")
+```
+
+```{r}
+load("../models/model_simplest_3.1.RData")
+
+print(model_simplest_fit)
+
+plot(model_simplest_fit)
+     
+pp_check(model_simplest_fit, ndraws = 50)
+pp_check(model_simplest_fit, type = "error_scatter_avg")
+
+bayes_R2(model_simplest_fit)
+
+mcmc_areas(
+  as.array(model_simplest_fit), 
+  pars = c("b_Year", "b_Edu.sec", "b_WBL.Index", 
+           "b_Labor.Force.Participation", "b_Wage"),
+  prob = 0.95
+) +
+  labs(title = "Posterior Distributions of Fixed Effects") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+# 3.2 Random Intercept Model
+```{r}
+model_country_intercept <- bf(
+  Log.GDP ~ Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage + (1 | Country.Code)
+)
+
+priors <- c(
+  prior(normal(0, 1), class = "b"),                       
+  prior(normal(9.4, 0.5), class = "Intercept"),          
+  prior(normal(0, 2.5), class = "sigma"),                 
+  prior(normal(0, 0.5), class = "sd", group = "Country.Code") 
+)
+
+model_country_intercept_fit <- brm(
+  formula = model_country_intercept,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors,
+  chains = 4,
+  iter = 2000,
+  cores = 4,
+  seed = 123
+)
+
+save(model_country_intercept_fit,file="../models/model_country_intercept_3.2.RData")
+```
+
+```{r}
+load("../models/model_country_intercept_3.2.RData")
+
+print(model_country_intercept_fit)
+
+pp_check(model_country_intercept_fit, ndraws = 50)
+pp_check(model_country_intercept_fit, type = "error_scatter_avg")
+
+plot(model_country_intercept_fit)
+
+mcmc_areas(
+  as.array(model_country_intercept_fit), 
+  pars = c("b_Year", "b_Edu.sec", "b_WBL.Index", 
+           "b_Labor.Force.Participation", "b_Wage"),
+  prob = 0.95
+) +
+  labs(title = "Posterior Distributions of Fixed Effects") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+bayes_R2(model_country_intercept_fit)
+```
+# 3.3 Fixed Interaction Model
+```{r}
+model_interaction <- bf(
+  Log.GDP ~ Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage + Edu.sec:Income.Group  + WBL.Index:Income.Group + Labor.Force.Participation:Income.Group + Wage:Income.Group +(1 | Country.Code)
+)
+
+priors <- c(
+  prior(normal(0, 1), class = "b"),                
+  prior(normal(9.4, 0.5), class = "Intercept"), 
+  prior(normal(0, 2.5), class = "sigma"),     
+  prior(normal(0, 0.5), class = "sd", group = "Country.Code") 
+)
+
+
+model_interaction_fit <- brm(
+  formula = model_interaction,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors,
+  chains = 4, iter = 2000, cores = 4, seed = 123
+)
+
+save(model_interaction_fit,file="../models/model_interaction_income_3.3.RData")
+```
+
+```{r}
+load("../models/model_interaction_income_3.3.RData")
+
+print(model_interaction_fit)
+
+pp_check(model_interaction_fit, ndraws = 50)
+pp_check(model_interaction_fit, type = "error_scatter_avg")
+
+plot(model_interaction_fit)
+
+bayes_R2(model_country_intercept_fit)
+```
+# 3.4 Random Slopes Model
+
+## 1. Only income Group
+```{r}
+model_indep_inc_formula <- bf(
+  Log.GDP ~ Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage + (0+Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage || Income.Group) + (1 | Country.Code)
+)
+
+ priors_random_slope <- c(
+    prior(normal(0, 1), class = "b"),                        
+    prior(normal(9.4, 0.5), class = "Intercept"),           
+    prior(normal(0, 2.5), class = "sigma"),               
+    prior(normal(0, 0.5), class = "sd", group = "Country.Code"), 
+    prior(student_t(3, 0, 0.5), class = "sd")
+  )
+
+model_indep_inc <- brm(
+  formula = model_indep_inc_formula,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors_random_slope,
+  chains = 4,
+  iter = 2000,
+  warmup = 1000,
+  cores = 4,
+  seed = 123
+)
+
+save(model_interaction_fit,file="../models/model_random_effect_income_3.4.RData")
+```
+
+```{r}
+load("../models/model_random_effect_income_3.4.RData")
+
+print(model_indep_inc)
+
+pp_check(model_indep_inc, ndraws = 50)
+pp_check(model_indep_inc, type = "error_scatter_avg")
+
+plot(model_indep_inc)
+
+bayes_R2(model_indep_inc)
+```
+
+## 2. Separate Grouping
+```{r}
+model_indep_inc_re_formula <- bf(
+  Log.GDP ~ Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage + (0+Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage || Income.Group) + (0+Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage || Region)+
+    (1 | Country.Code)
+)
+
+ priors_random_slope <- c(
+    prior(normal(0, 1), class = "b"),                        # 固定效应的先验（标准化系数）
+    prior(normal(9.4, 0.5), class = "Intercept"),           # 截距的先验
+    prior(normal(0, 2.5), class = "sigma"),                 # 残差标准差的先验
+    prior(normal(0, 0.5), class = "sd", group = "Country.Code"), # 国家随机截距的先验
+    prior(student_t(3, 0, 0.5), class = "sd")
+  )
+# 设置模型参数
+model_indep_inc_re <- brm(
+  formula = model_indep_inc_re_formula,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors_random_slope,
+  chains = 4,
+  iter = 2000,
+  warmup = 1000,
+  cores = 4,
+  seed = 123
+)
+
+save(model_indep_inc_re,file="../models/model_random_effect_seperate_3.4.RData")
+```
+
+```{r}
+load("../models/model_random_effect_seperate_3.4.RData")
+
+print(model_indep_inc_re)
+
+pp_check(model_indep_inc_re, ndraws = 50)
+pp_check(model_indep_inc_re, type = "error_scatter_avg")
+
+plot(model_indep_inc_re)
+
+bayes_R2(model_indep_inc_re)
+```
+
+## 3. Combined Grouping
+```{r}
+model_random_slope_ReIn <- bf(
+  Log.GDP ~ Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage + (0 + Year + Edu.sec + WBL.Index + Labor.Force.Participation + Wage || Region_IncomeGroup) + (1 | Country.Code)
+)
+
+ priors_random_slope <- c(
+    prior(normal(0, 1), class = "b"),                       
+    prior(normal(9.4, 0.5), class = "Intercept"),         
+    prior(normal(0, 2.5), class = "sigma"),                
+    prior(normal(0, 0.5), class = "sd", group = "Country.Code"), 
+    prior(student_t(3, 0, 0.5), class = "sd")
+  )
+ 
+model_random_slope_ReIn_fit <- brm(
+  formula = model_random_slope_ReIn,
+  data = stand_data,
+  family = gaussian(),
+  prior = priors_random_slope,
+  chains = 4,
+  iter = 2000,
+  cores = 4,
+  seed = 123
+)
+
+save(model_random_slope_ReIn_fit , file = "../models/model_random_effect_combined_3.4.RData")
+```
+
+```{r}
+load("../models/model_random_effect_combined_3.4.RData")
+
+print(model_random_slope_ReIn_fit)
+
+pp_check(model_random_slope_ReIn_fit, ndraws = 50)
+pp_check(model_random_slope_ReIn_fit, type = "error_scatter_avg")
+
+plot(model_random_slope_ReIn_fit)
+
+bayes_R2(model_random_slope_ReIn_fit)
+```
+
+# 4. loo_cv comparison
+```{r}
+loo_simplest     <- loo(model_simplest_fit)
+loo_country      <- loo(model_country_intercept_fit)
+loo_interaction  <- loo(model_interaction_fit)
+loo_indep_inc    <- loo(model_indep_inc)
+loo_indep_inc_re <- loo(model_indep_inc_re)
+loo_random_slope <- loo(model_random_slope_ReIn_fit)
+
+loo_results <- loo_compare(
+  loo_simplest, 
+  loo_country, 
+  loo_interaction, 
+  loo_indep_inc, 
+  loo_indep_inc_re, 
+  loo_random_slope
+)
+
+print(loo_results)
+```
+
+# 6. Result
+
+## 1. A function to extract coefficients
+```{r}
+process_coef <- function(model, grouping_factor) {
+  # extract coefficients
+  coef_info <- coef(model)[[grouping_factor]]
+
+  coef_df <- coef_info %>%
+    as.data.frame() %>%
+    rownames_to_column(var = grouping_factor)
+
+  coef_long <- coef_df %>%
+    pivot_longer(
+      cols = starts_with("Estimate"),
+      names_to = "Variable",
+      values_to = "Coef"
+    ) %>%
+    mutate(
+      Variable = str_replace(Variable, "Estimate\\.", "")  
+    )
+
+  # Extract 95% confidence intervals
+  coef_cis <- coef_info %>%
+    as.data.frame() %>%
+    rownames_to_column(var = grouping_factor) %>%
+    pivot_longer(
+      cols = starts_with("Q2.5") | starts_with("Q97.5"),
+      names_to = "CI",
+      values_to = "Value"
+    ) %>%
+    mutate(
+      Variable = str_replace(CI, "Q2.5\\.|Q97.5\\.", ""),
+      CI = ifelse(str_detect(CI, "Q2.5"), "Lower", "Upper")
+    ) %>%
+    pivot_wider(names_from = CI, values_from = Value)
+
+  # Combine Estimates and CIs
+  coef_combined <- coef_long %>%
+    left_join(coef_cis, by = c(grouping_factor, "Variable"))
+
+  coef_intercept <- coef_combined %>%
+    filter(Variable == "Intercept")
+
+  coef_others <- coef_combined %>%
+    filter(Variable != "Intercept")
+
+  return(list(intercept = coef_intercept, others = coef_others))
+}
+```
+
+# 2. generate point range plots
+```{r}
+coef_processed <- process_coef(model_random_slope_ReIn_fit, "Region_IncomeGroup")
+
+# Iterate over each random slope variable and plot
+unique_vars <- unique(coef_processed$others$Variable)
+
+for (var in unique_vars) {
+  coef_effects <- coef_processed$others %>%
+    filter(Variable == var) %>%
+    mutate(
+      Income.Group = str_extract(Region_IncomeGroup, "High income|Low income|Lower middle income|Upper middle income"),
+      Region = str_remove(Region_IncomeGroup, "_High income|_Low income|_Lower middle income|_Upper middle income")
+    )
+
+  coef_effects$Income.Group <- factor(
+    coef_effects$Income.Group,
+    levels = c("High income", "Upper middle income", "Lower middle income", "Low income")
+  )
+
+  # Draw a point-range graph
+  plot <- ggplot(coef_effects, aes(x = reorder(Region_IncomeGroup, Coef), 
+                                   y = Coef, 
+                                   ymin = Lower, 
+                                   ymax = Upper, 
+                                   color = Income.Group)) +
+    geom_pointrange(position = position_dodge(width = 0.8), size = 0.8) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black") + 
+    coord_flip() +
+    labs(
+      title = paste("Random Effects for", var),
+      x = "Region_IncomeGroup",
+      y = paste("Estimate (", var, ")", sep = "")
+    ) +
+    scale_color_brewer(palette = "Dark2") +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(hjust = 0, size = 16, face = "bold"),
+      plot.title.position = "plot",
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 12),
+      legend.position = "top",
+      legend.title = element_text(size = 12, face = "bold"),
+      legend.text = element_text(size = 10),
+      plot.margin = margin(10, 10, 10, 10)
+    ) +
+    guides(
+      color = guide_legend(
+        title.position = "top",
+        title.hjust = 0.5,
+        nrow = 2,
+        byrow = TRUE
+      )
+    )
+
+  print(plot)
+}
+
+```
