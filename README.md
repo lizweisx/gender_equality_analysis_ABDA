@@ -4,10 +4,10 @@
 
   ## Project Overview
 
-  - **Objective**: Investigate how gender equality indicators (e.g., WBL Index, female labor force participation, education) influence GDP across countries.
+  - **Objective**: Investigate how gender equality indicators (e.g., WBL Index, female labor force participation, education) relate to GDP across countries.
   - **Methodology**: Bayesian hierarchical modeling using the `brms` package in R.
   - **Data Source**: [World Bank datasets (1991-2022)](https://data.worldbank.org/).
-  - **Key Findings**: Gender equality impacts GDP differently based on income levels and regions.
+  - **Key Findings**: Gender equality factors are associated with GDP differently based on income levels and regions.
 
   ## Repository Structure
 
