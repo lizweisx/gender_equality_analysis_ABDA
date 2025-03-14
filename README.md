@@ -1,4 +1,4 @@
-- # Gender Equality and Economic Impact
+# Analyzing the Economic Impact of Gender Equality Across Countries
 
   This repository contains the code and analysis for our project in **Advanced Bayesian Data Analysis**, where we explore the relationship between gender equality and economic growth using **Bayesian multilevel modeling**.
 
