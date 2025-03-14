@@ -21,5 +21,5 @@
 
   ## Authors
 
-  - **Rachel John Christopher** - TU Dortmund University  
   - **Sixuan Wei** - TU Dortmund University  
+  - **Rachel John Christopher** - TU Dortmund University  
